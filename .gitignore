@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Processing State - Do NOT commit this to git
+processing_state.json
+
+# Raw Data - This is input, not application data. Do NOT commit.
+servers.jsonl
+
+# OS-specific
+.DS_Store
+Thumbs.db

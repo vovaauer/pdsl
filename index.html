@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A static, client-side search engine for a massive Discord server dataset.">
+    <title>PDSL Search - Public Discord Server List</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <img src="logo.png" alt="PDSL Logo" class="logo">
+            <h1>PDSL Search</h1>
+            <p>An experimental, client-side search engine for a massive public Discord server dataset.</p>
+        </header>
+
+        <div class="search-area">
+            <input type="text" id="searchInput" placeholder="Try: gaming members:>1000 -feature:COMMUNITY (or leave blank to browse all)">
+            <button id="searchButton">Search</button>
+        </div>
+
+        <details class="search-guide">
+            <!-- Search Guide content is unchanged -->
+            <summary>Click to view Search Guide</summary>
+            <table>
+                <thead> <tr> <th>Operator</th> <th>Description</th> <th>Example</th> </tr> </thead>
+                <tbody>
+                    <tr> <td><code>keyword</code></td> <td>Searches names/descriptions. Multiple words are AND'd.</td> <td><code>grow garden</code></td> </tr>
+                    <tr> <td><code>field:value</code></td> <td>Search for a value within a specific field.</td> <td><code>inviter.id:973662951393361960</code></td> </tr>
+                    <tr> <td><code>"phrase"</code></td> <td>Search for an exact phrase.</td> <td><code>"Pixel Paradise"</code></td> </tr>
+                    <tr> <td><code>> < >= <=</code></td> <td>Numeric comparisons for counts.</td> <td><code>members:>=500</code></td> </tr>
+                    <tr> <td><code>..</code> (Range)</td> <td>Search for numbers within an inclusive range.</td> <td><code>online:20..100</code></td> </tr>
+                    <tr> <td><code>OR</code> or <code>|</code></td> <td>Get results that match either condition.</td> <td><code>gaming OR minecraft</code></td> </tr>
+                    <tr> <td><code>-</code> (Negation)</td> <td>Exclude results matching a condition.</td> <td><code>feature:COMMUNITY -feature:NEWS</code></td> </tr>
+                    <tr> <td><code>has:field</code></td> <td>Find servers where a field is not empty.</td> <td><code>has:guild.description</code></td> </tr>
+                    <tr> <td><code>missing:field</code></td> <td>Find servers where a field is empty or missing.</td> <td><code>missing:guild.vanity_url_code</code></td> </tr>
+                </tbody>
+            </table>
+            <h4>Available Fields:</h4>
+            <p><code>invite</code>, <code>inviter.id</code>, <code>inviter.username</code>, <code>global_name</code>, <code>guild.id</code>, <code>guild.name</code>, <code>guild.description</code>, <code>feature</code>, <code>channel.id</code>, <code>channel.name</code>, <code>members</code>, <code>online</code>, <code>nsfw</code>, <code>tier</code>, <code>verification</code>, <code>boosts</code>, <code>tag</code>, <code>trait</code></p>
+        </details>
+        
+        <div class="controls-area">
+            <div id="column-controls">
+                <h4>Visible Columns:</h4>
+            </div>
+            <!-- REMOVED the sort-container div entirely -->
+            <div class="sort-export-controls">
+                <button id="exportButton" title="Download current results as CSV">Export to CSV</button>
+            </div>
+        </div>
+
+        <div id="status-area"> <p id="status-text"></p> </div>
+        <div class="table-container">
+            <table id="results-table">
+                <thead id="results-table-head"></thead>
+                <tbody id="results-table-body"></tbody>
+            </table>
+        </div>
+        
+        <footer>
+            <p>Contact: Discord - <code>vovaauer</code> | Telegram - <a href="https://t.me/vovaauer" target="_blank" rel="noopener noreferrer">vovaauer</a></p>
+        </footer>
+    </div>
+    <script src="search.js"></script>
+</body>
+</html>
