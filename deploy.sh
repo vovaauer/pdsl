@@ -20,7 +20,6 @@ echo "✅ 'pdsl' deployed."
 echo ""
 
 # 3. Find and deploy all 'pdsl-shard-*' repositories
-# This script assumes it's in 'pdsl' and shards are sibling folders.
 SHARD_DIR_PATH="../"
 SHARDS=$(find "$SHARD_DIR_PATH" -maxdepth 1 -type d -name "pdsl-shard-*" | sort)
 
@@ -37,19 +36,20 @@ do
   
   if [ ! -d ".git" ]; then
     echo "First time deployment for $repo_name. Initializing..."
-    # You must have created the empty repo on GitHub first!
     git init
-    # IMPORTANT: Change the username to your own!
-    git remote add origin "https://github.com/vovaauer/${repo_name}.git"
+    git remote add origin "https://github.com/vovaauer/${repo_name}.git" # Change username if needed
     git branch -M main
   fi
   
+  # --- NEW: AUTOMATICALLY COPY THE LICENSE FILE ---
+  echo "Ensuring LICENSE file is present..."
+  # This copies the LICENSE from the 'pdsl' folder into the current shard folder.
+  cp "../pdsl/LICENSE" .
+  # --- END NEW ---
+
   git add .
   
-  # Use --allow-empty in case there are no changes to a shard
-  # Use --amend to squash history and keep the repo size small
   echo "Committing and force-pushing to keep repo history small..."
-  # Check if there are any changes to commit to avoid errors on unchanged repos
   if ! git diff-index --quiet HEAD --; then
       git commit --amend -m "$COMMIT_MESSAGE"
       git push origin main --force
