@@ -33,15 +33,16 @@ header {
 }
 
 .logo {
-    width: 80px;
-    height: 80px;
+    width: 120px; /* Changed from 80px - you can adjust this value */
+    height: 120px; /* Changed from 80px - you can adjust this value */
     margin-bottom: 10px;
 }
 
-header h1 {
+/* REMOVED: header h1 rule as the h1 tag is gone */
+/* header h1 {
     margin: 0;
     color: var(--accent-color);
-}
+} */
 
 header p {
     margin: 5px 0 0 0;

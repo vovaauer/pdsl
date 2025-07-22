@@ -11,7 +11,7 @@
     <div class="container">
         <header>
             <img src="logo.png" alt="PDSL Logo" class="logo">
-            <h1>PDSL Search</h1>
+            <!-- REMOVED: <h1>PDSL Search</h1> -->
             <p>An experimental, client-side search engine for a massive public Discord server dataset.</p>
         </header>
 
@@ -33,7 +33,7 @@
                     <tr> <td><code>..</code> (Range)</td> <td>Search for numbers within an inclusive range.</td> <td><code>online:20..100</code></td> </tr>
                     <tr> <td><code>OR</code> or <code>|</code></td> <td>Get results that match either condition.</td> <td><code>gaming OR minecraft</code></td> </tr>
                     <tr> <td><code>-</code> (Negation)</td> <td>Exclude results matching a condition.</td> <td><code>feature:COMMUNITY -feature:NEWS</code></td> </tr>
-                    <tr> <td><code>has:field</code></td> <td>Find servers where a field is not empty.</td> <td><code>has:guild.description</code></td> </tr>
+                    <tr> <td><code>has:field</code></td> <td>Find servers where a field is not empty.</td> <td><code>has:guild.description</code></td> </td>
                     <tr> <td><code>missing:field</code></td> <td>Find servers where a field is empty or missing.</td> <td><code>missing:guild.vanity_url_code</code></td> </tr>
                 </tbody>
             </table>
