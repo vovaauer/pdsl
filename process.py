@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
+import shutil # Import the shutil library for robust file copying
 
 # --- CONFIGURATION (Unchanged) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +38,7 @@ def get_nested_val(data, path):
         else: return None
     return temp_data
 
-# --- WORKER FUNCTIONS ---
+# --- WORKER FUNCTIONS (Unchanged) ---
 def initial_parse_line(line):
     try:
         data = json.loads(line)
@@ -45,19 +46,13 @@ def initial_parse_line(line):
             return data
     except json.JSONDecodeError: pass
     return None
-
 def process_final_doc(doc_with_id_tuple):
     internal_id, data = doc_with_id_tuple
     doc_to_store = {"internal_id": internal_id, "data": {"id": get_nested_val(data, 'response.guild.id'), "invite": data.get('invite'), **data.get('response', {})}}
     index_pointers = []
-    
-    # Get sortable values
     member_count = get_nested_val(doc_to_store, 'data.profile.member_count') or 0
     online_count = get_nested_val(doc_to_store, 'data.profile.online_count') or 0
-    
-    # Create the "rich pointer" object
     rich_pointer = {"id": internal_id, "mc": member_count, "oc": online_count}
-    
     for field in INDEX_CONFIG['text']:
         values_to_process = []
         if field == 'invite': raw_val = data.get('invite')
@@ -69,18 +64,14 @@ def process_final_doc(doc_with_id_tuple):
         elif isinstance(raw_val, str): values_to_process.append(raw_val)
         elif isinstance(raw_val, list): values_to_process.extend(item for item in raw_val if isinstance(item, str))
         for text_item in values_to_process:
-            for token in tokenize(text_item):
-                index_pointers.append((field, token, rich_pointer))
-
+            for token in tokenize(text_item): index_pointers.append((field, token, rich_pointer))
     for field_type in ['keyword', 'numeric']:
         for field in INDEX_CONFIG[field_type]:
             value = get_nested_val(data, f'response.{field}')
             if isinstance(value, list):
                 for item in value: index_pointers.append((field, str(item), rich_pointer))
             elif value is not None: index_pointers.append((field, str(value), rich_pointer))
-            
     return doc_to_store, index_pointers, member_count
-
 def update_data_batch(task_tuple):
     batch_id, docs, repo_num = task_tuple
     data_file_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(repo_num), 'data', f'd_{batch_id}.json')
@@ -89,12 +80,12 @@ def update_data_batch(task_tuple):
 
 
 def main():
-    print("🚀 PDSL Clean Build Processor with Enriched Index")
+    print("🚀 PDSL Clean Build Processor with Deduplication")
     with open(SOURCE_FILE_PATH, 'r', encoding='utf-8') as f:
         lines_to_process = f.readlines()
     if not lines_to_process: return
 
-    print(f"⚙️ Stage 1/4: Parsing and deduplicating {len(lines_to_process)} raw lines...")
+    print(f"⚙️ Stage 1/5: Parsing and deduplicating {len(lines_to_process)} raw lines...")
     with Pool(cpu_count()) as pool:
         initial_results = list(tqdm(pool.imap_unordered(initial_parse_line, lines_to_process, chunksize=2000), total=len(lines_to_process)))
     valid_initial_docs = [doc for doc in initial_results if doc is not None]
@@ -108,14 +99,14 @@ def main():
     final_docs_to_process = [v['data'] for v in deduplicated_servers.values()]
     print(f"Found {len(final_docs_to_process)} unique servers.")
 
-    print(f"\n⚙️ Stage 2/4: Processing {len(final_docs_to_process)} unique servers...")
+    print(f"\n⚙️ Stage 2/5: Processing {len(final_docs_to_process)} unique servers...")
     processing_tasks = list(enumerate(final_docs_to_process))
     with Pool(cpu_count()) as pool:
         final_results = list(tqdm(pool.imap_unordered(process_final_doc, processing_tasks, chunksize=1000), total=len(processing_tasks)))
     all_docs, all_pointers_flat, all_member_counts = zip(*final_results)
     total_valid_servers = len(all_docs)
 
-    print(f"\n⚙️ Stage 3/4: Writing data and index files...")
+    print(f"\n⚙️ Stage 3/5: Writing data and index files...")
     docs_by_batch = defaultdict(list)
     for doc in all_docs:
         batch_id = doc['internal_id'] // DOCS_PER_DATA_FILE
@@ -126,8 +117,7 @@ def main():
     
     final_index = defaultdict(lambda: defaultdict(list))
     for pointers_list in all_pointers_flat:
-        for field, token, rich_pointer in pointers_list:
-            final_index[field][token].append(rich_pointer)
+        for field, token, rich_pointer in pointers_list: final_index[field][token].append(rich_pointer)
             
     for field, tokens in tqdm(final_index.items(), desc="Writing index fields"):
         updates_by_shard_file = defaultdict(dict)
@@ -139,7 +129,7 @@ def main():
         for shard_key, updates in updates_by_shard_file.items():
             with open(os.path.join(field_path, f'{shard_key}.json'), 'w', encoding='utf-8') as f: json.dump(updates, f)
 
-    print(f"\n⚙️ Stage 4/4: Generating final manifests...")
+    print(f"\n⚙️ Stage 4/5: Generating final manifests...")
     server_sort_data = sorted([(mc, doc['internal_id']) for doc, mc in zip(all_docs, all_member_counts)], key=lambda x: x[0], reverse=True)
     sorted_ids = [item[1] for item in server_sort_data]
     sorted_index_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1), 'all_servers_sorted_by_members.json')
@@ -159,6 +149,23 @@ def main():
         "index_shard_map": {field: 1 for cat in INDEX_CONFIG.values() for field in cat}
     }
     with open(os.path.join(BASE_DIR, 'manifest.json'), 'w') as f: json.dump(manifest, f, indent=2)
+
+    # --- NEW: STAGE 5/5: Finalize Shards (Copy LICENSE) ---
+    print(f"\n⚙️ Stage 5/5: Finalizing shard repositories...")
+    license_source_path = os.path.join(BASE_DIR, 'LICENSE')
+    if not os.path.exists(license_source_path):
+        print("!! WARNING: LICENSE file not found in 'pdsl' directory. Skipping license copy.")
+    else:
+        # Find all shard directories that were created/used
+        used_shard_dirs = set()
+        # In this simple build, we know it's just shard 1
+        used_shard_dirs.add(os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1)))
+
+        for shard_dir in used_shard_dirs:
+            if os.path.isdir(shard_dir):
+                print(f"Copying LICENSE to {os.path.basename(shard_dir)}...")
+                shutil.copy(license_source_path, shard_dir)
+            
     print(f"\n✅ Clean build complete! System now has {total_valid_servers} unique servers.")
 
 if __name__ == '__main__':
