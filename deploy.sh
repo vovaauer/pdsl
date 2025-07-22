@@ -11,6 +11,11 @@ if [ -z "$COMMIT_MESSAGE" ]; then
     exit 1
 fi
 
+# --- NEW: Store the absolute path of the main project directory ---
+MAIN_DIR=$(pwd)
+echo "Main project directory set to: $MAIN_DIR"
+echo ""
+
 # 2. Deploy the main 'pdsl' repository first
 echo "🚀 Deploying 'pdsl' (frontend and control plane)..."
 git add .
@@ -41,11 +46,20 @@ do
     git branch -M main
   fi
   
-  # --- NEW: AUTOMATICALLY COPY THE LICENSE FILE ---
+  # --- UPDATED: Use the absolute path to copy the LICENSE file ---
   echo "Ensuring LICENSE file is present..."
-  # This copies the LICENSE from the 'pdsl' folder into the current shard folder.
-  cp "../pdsl/LICENSE" .
-  # --- END NEW ---
+  LICENSE_SOURCE_PATH="$MAIN_DIR/LICENSE"
+  
+  if [ -f "$LICENSE_SOURCE_PATH" ]; then
+    cp "$LICENSE_SOURCE_PATH" .
+  else
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "!! ERROR: LICENSE file not found at '$LICENSE_SOURCE_PATH'."
+    echo "!! Please create the LICENSE file in the 'pdsl' directory."
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    exit 1
+  fi
+  # --- END UPDATE ---
 
   git add .
   
@@ -58,7 +72,8 @@ do
       echo "✅ '$repo_name' has no changes."
   fi
   
-  cd "../pdsl" # Go back to our base directory
+  # --- UPDATED: Reliably return to the main directory ---
+  cd "$MAIN_DIR"
   echo ""
 done
 
