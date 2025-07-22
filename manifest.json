@@ -1,6 +1,6 @@
 {
-  "last_updated": "2025-07-22T08:10:20Z",
-  "total_servers": 170226,
+  "last_updated": "2025-07-22T17:41:13Z",
+  "total_servers": 250791,
   "repo_base_url": "https://vovaauer.github.io",
   "repo_name_template": "/pdsl-shard-{}",
   "docs_per_file": 500,
