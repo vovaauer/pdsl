@@ -77,7 +77,49 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- SEARCH LOGIC ---
     const simpleStem = (word) => (word.length > 3 && word.endsWith('s')) ? word.slice(0, -1) : word;
     function createQueryPlan(query) { const plan = { orGroups: [], postFilters: [] }; const orGroups = query.split(/ OR | \| /gi); for (const groupQuery of orGroups) { const conditions = []; const regex = /(-)?([a-zA-Z._]+:(?:"[^"]*"|[^ ]+)|"[^"]*"|[^ ]+)/g; let match; while ((match = regex.exec(groupQuery)) !== null) { const negated = match[1] === '-'; let term = match[2]; let field, value, isPhrase = false; if (term.startsWith('"') && term.endsWith('"')) { field = 'default'; value = term.slice(1, -1); isPhrase = true; } else if (term.includes(':')) { [field, ...valueParts] = term.split(':'); value = valueParts.join(':'); } else { const defaultTokens = term.toLowerCase().match(/\b[a-z0-9]{2,}\b/g) || []; for (const token of defaultTokens) { if (!STOP_WORDS.has(token)) conditions.push({ type: 'keyword', field: 'default', val: simpleStem(token), negated: false }); } continue; } field = FIELD_ALIASES[field] || field; if (!value) continue; const condition = { negated, field, value }; if (field === 'has' || field === 'missing') { condition.type = 'postFilter'; condition.op = field; condition.field = value; plan.postFilters.push(condition); } else if (isPhrase) { condition.type = 'postFilter'; condition.op = 'phrase'; plan.postFilters.push(condition); const tokens = value.toLowerCase().match(/\b[a-z0-9]{2,}\b/g) || []; tokens.forEach(token => { if (!STOP_WORDS.has(token)) conditions.push({ type: 'keyword', field: 'default', val: simpleStem(token), negated: false }); }); } else if (value.includes('..')) { const [start, end] = value.split('..').map(Number); if (!isNaN(start) && !isNaN(end)) conditions.push({ type: 'numericRange', field, start, end, negated }); } else { const numericMatch = value.match(/^(>=|>|<=|<)(\d+)$/); if (numericMatch) conditions.push({ type: 'numeric', field, op: numericMatch[1], val: parseInt(numericMatch[2], 10), negated }); else conditions.push({ type: 'keyword', field, val: simpleStem(value.toLowerCase()), negated }); } } if (conditions.length > 0) plan.orGroups.push(conditions); } return plan; }
-    async function getIdsForCondition(condition) { if (condition.field === 'default') { const promises = ['guild.name', 'guild.description', 'profile.tag', 'profile.traits'].map(field => getIdsForCondition({ ...condition, field })); const pointerLists = await Promise.all(promises); return pointerLists.flat().filter(Boolean); } if (condition.type === 'numeric' || condition.type === 'numericRange') { if (!PDSL.numericManifest || !PDSL.numericManifest[condition.field]) return []; let targetValues = []; if (condition.type === 'numericRange') targetValues = PDSL.numericManifest[condition.field].filter(v => v >= condition.start && v <= condition.end); else if (condition.op === '>=') targetValues = PDSL.numericManifest[condition.field].filter(v => v >= condition.val); else if (condition.op === '<=') targetValues = PDSL.numericManifest[condition.field].filter(v => v <= condition.val); else if (condition.op === '>') targetValues = PDSL.numericManifest[condition.field].filter(v => v > condition.val); else if (condition.op === '<') targetValues = PDSL.numericManifest[condition.field].filter(v => v < condition.val); const pointerLists = await Promise.all(targetValues.map(val => getIdsForCondition({type: 'keyword', field: condition.field, val}))); return pointerLists.flat(); } if (condition.type === 'keyword') { const SHARD_PREFIX_LENGTH = 2; const value = String(condition.val); const shardKey = value.length >= SHARD_PREFIX_LENGTH ? value.substring(0, SHARD_PREFIX_LENGTH) : '_'; const url = getUrlForIndex(condition.field, shardKey); const shardData = await fetchJSON(url); return shardData && shardData[value] ? shardData[value] : []; } return []; }
+	async function getIdsForCondition(condition) {
+		if (condition.field === 'default') {
+			const promises = ['guild.name', 'guild.description', 'profile.tag', 'profile.traits'].map(field => getIdsForCondition({ ...condition, field }));
+			const pointerLists = await Promise.all(promises);
+			return pointerLists.flat().filter(Boolean);
+		}
+		if (condition.type === 'numeric' || condition.type === 'numericRange') {
+			if (!PDSL.numericManifest || !PDSL.numericManifest[condition.field]) return [];
+			let targetValues = [];
+			if (condition.type === 'numericRange') targetValues = PDSL.numericManifest[condition.field].filter(v => v >= condition.start && v <= condition.end);
+			else if (condition.op === '>=') targetValues = PDSL.numericManifest[condition.field].filter(v => v >= condition.val);
+			else if (condition.op === '<=') targetValues = PDSL.numericManifest[condition.field].filter(v => v <= condition.val);
+			else if (condition.op === '>') targetValues = PDSL.numericManifest[condition.field].filter(v => v > condition.val);
+			else if (condition.op === '<') targetValues = PDSL.numericManifest[condition.field].filter(v => v < condition.val);
+			const pointerLists = await Promise.all(targetValues.map(val => getIdsForCondition({ type: 'keyword', field: condition.field, val })));
+			return pointerLists.flat();
+		}
+		if (condition.type === 'keyword') {
+			const SHARD_PREFIX_LENGTH = 2;
+			const value = String(condition.val);
+			const shardKey = value.length >= SHARD_PREFIX_LENGTH ? value.substring(0, SHARD_PREFIX_LENGTH) : '_';
+			const fieldPath = condition.field.replace(/\./g, '_');
+
+			// Create a fetch promise for every potential shard
+			const promises = [];
+			for (let i = 1; i <= PDSL.manifest.total_shards; i++) {
+				const url = bustCache(`${getRepoUrl(i)}/index/${fieldPath}/${shardKey}.json`);
+				promises.push(fetchJSON(url));
+			}
+
+			const shardResults = await Promise.all(promises);
+
+			// Combine the results from all shards
+			const combinedPointers = [];
+			shardResults.forEach(shardData => {
+				if (shardData && shardData[value]) {
+					combinedPointers.push(...shardData[value]);
+				}
+			});
+			return combinedPointers;
+		}
+		return [];
+	}
     async function executeQueryPlan(plan) { let finalResultsMap = new Map(); for (let i = 0; i < plan.orGroups.length; i++) { const group = plan.orGroups[i]; const positiveConditions = group.filter(c => !c.negated); const negativeConditions = group.filter(c => c.negated); if (positiveConditions.length === 0) continue; let pointerLists = await Promise.all(positiveConditions.map(getIdsForCondition)); if (pointerLists.some(p => p.length === 0)) continue; let groupResultsMap = new Map(pointerLists[0].map(p => [p.id, p])); for (let j = 1; j < pointerLists.length; j++) { const nextIds = new Set(pointerLists[j].map(p => p.id)); for (const id of groupResultsMap.keys()) { if (!nextIds.has(id)) { groupResultsMap.delete(id); } } } for (const cond of negativeConditions) { const negativePointers = await getIdsForCondition(cond); const negativeIds = new Set(negativePointers.map(p => p.id)); if (negativeIds.size > 0) { for (const id of groupResultsMap.keys()) { if (negativeIds.has(id)) { groupResultsMap.delete(id); } } } } groupResultsMap.forEach((value, key) => { if (!finalResultsMap.has(key)) { finalResultsMap.set(key, value); } }); } let finalPointers = Array.from(finalResultsMap.values()); const sortKey = SORT_KEY_MAP[PDSL.currentSort.key]; if (sortKey) { finalPointers.sort((a, b) => { const valA = a[sortKey] || 0; const valB = b[sortKey] || 0; return PDSL.currentSort.direction === 'desc' ? valB - valA : valA - valB; }); } return finalPointers.map(p => p.id); }
     function applyPostFilters(serverItem) { if (!PDSL.postFilters || PDSL.postFilters.length === 0) return true; return PDSL.postFilters.every(cond => { let result = true; const fieldPath = `data.${cond.field}`; if (cond.op === 'phrase') { let textToSearch = ''; if (cond.field === 'default') { textToSearch = [ getNestedVal(serverItem, 'data.guild.name'), getNestedVal(serverItem, 'data.guild.description'), getNestedVal(serverItem, 'data.profile.tag'), ...(getNestedVal(serverItem, 'data.profile.traits') || []).map(t => t.label) ].join(' ').toLowerCase(); } else { textToSearch = (getNestedVal(serverItem, fieldPath) || '').toLowerCase(); } result = textToSearch.includes(cond.value.toLowerCase()); } else if (cond.op === 'has' || cond.op === 'missing') { const value = getNestedVal(serverItem, fieldPath); result = value !== null && value !== '' && (!Array.isArray(value) || value.length > 0); if (cond.op === 'missing') result = !result; } return cond.negated ? !result : result; }); }
     async function fetchAndRenderBatch() { if (PDSL.isFetching || PDSL.currentIndex >= PDSL.allServerIds.length) return; PDSL.isFetching = true; const batchSize = 20; const batchIds = PDSL.allServerIds.slice(PDSL.currentIndex, PDSL.currentIndex + batchSize); PDSL.currentIndex += batchSize; const fetchesByUrl = new Map(); batchIds.forEach(id => { const url = getUrlForDataFile(id); if (!fetchesByUrl.has(url)) fetchesByUrl.set(url, []); }); const dataPromises = Array.from(fetchesByUrl.keys()).map(url => fetchJSON(url)); const dataChunks = await Promise.all(dataPromises); const serverMap = new Map(dataChunks.flat().filter(Boolean).map(item => [item.internal_id, item])); batchIds.forEach(id => { const serverItem = serverMap.get(id); if (serverItem && applyPostFilters(serverItem)) { PDSL.loadedServers.push(serverItem); } }); updateDisplay(); PDSL.isFetching = false; }
