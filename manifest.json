@@ -1,34 +1,21 @@
 {
-  "last_updated": "2025-07-22T23:59:27Z",
-  "total_servers": 297603,
+  "last_updated": "2025-07-23T08:35:42Z",
+  "total_servers": 352565,
+  "total_shards": 2,
+  "servers_per_shard": 200000,
   "repo_base_url": "https://vovaauer.github.io",
   "repo_name_template": "/pdsl-shard-{}",
   "docs_per_file": 500,
   "data_shard_map": [
     {
       "repo": 1,
-      "start_id": 0
+      "start_id": 0,
+      "end_id": 199999
+    },
+    {
+      "repo": 2,
+      "start_id": 200000,
+      "end_id": 352564
     }
-  ],
-  "index_shard_map": {
-    "invite": 1,
-    "inviter.username": 1,
-    "inviter.global_name": 1,
-    "guild.name": 1,
-    "guild.description": 1,
-    "channel.name": 1,
-    "profile.tag": 1,
-    "profile.traits": 1,
-    "inviter.id": 1,
-    "guild.id": 1,
-    "guild.features": 1,
-    "guild.vanity_url_code": 1,
-    "channel.id": 1,
-    "guild.nsfw": 1,
-    "guild.premium_tier": 1,
-    "guild.verification_level": 1,
-    "profile.member_count": 1,
-    "profile.online_count": 1,
-    "guild.premium_subscription_count": 1
-  }
+  ]
 }

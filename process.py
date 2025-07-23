@@ -5,13 +5,14 @@ import time
 from collections import defaultdict
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
-import shutil # Import the shutil library for robust file copying
+import shutil
 
-# --- CONFIGURATION (Unchanged) ---
+# --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE_PATH = os.path.join(BASE_DIR, 'servers.jsonl')
 SHARD_REPO_PREFIX = 'pdsl-shard-{}'
 DOCS_PER_DATA_FILE = 500
+SERVERS_PER_SHARD = 200000  # NEW: Max number of servers per shard repository
 SHARD_PREFIX_LENGTH = 2
 GITHUB_USERNAME = 'vovaauer'
 INDEX_CONFIG = {
@@ -73,14 +74,14 @@ def process_final_doc(doc_with_id_tuple):
             elif value is not None: index_pointers.append((field, str(value), rich_pointer))
     return doc_to_store, index_pointers, member_count
 def update_data_batch(task_tuple):
-    batch_id, docs, repo_num = task_tuple
+    repo_num, batch_id, docs = task_tuple
     data_file_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(repo_num), 'data', f'd_{batch_id}.json')
     os.makedirs(os.path.dirname(data_file_path), exist_ok=True)
     with open(data_file_path, 'w', encoding='utf-8') as f: json.dump(docs, f)
 
 
 def main():
-    print("🚀 PDSL Clean Build Processor with Deduplication")
+    print("🚀 PDSL Clean Build Processor with Deduplication and Sharding")
     with open(SOURCE_FILE_PATH, 'r', encoding='utf-8') as f:
         lines_to_process = f.readlines()
     if not lines_to_process: return
@@ -105,68 +106,101 @@ def main():
         final_results = list(tqdm(pool.imap_unordered(process_final_doc, processing_tasks, chunksize=1000), total=len(processing_tasks)))
     all_docs, all_pointers_flat, all_member_counts = zip(*final_results)
     total_valid_servers = len(all_docs)
+    total_shards = (total_valid_servers + SERVERS_PER_SHARD - 1) // SERVERS_PER_SHARD
+    print(f"Dataset will be split into {total_shards} shard(s).")
 
     print(f"\n⚙️ Stage 3/5: Writing data and index files...")
-    docs_by_batch = defaultdict(list)
+    # Group data documents by shard and then by batch file
+    docs_by_repo_and_batch = defaultdict(lambda: defaultdict(list))
     for doc in all_docs:
-        batch_id = doc['internal_id'] // DOCS_PER_DATA_FILE
-        docs_by_batch[batch_id].append(doc)
-    data_writing_tasks = [(batch_id, docs, 1) for batch_id, docs in docs_by_batch.items()]
+        repo_num = doc['internal_id'] // SERVERS_PER_SHARD + 1
+        batch_id = (doc['internal_id'] % SERVERS_PER_SHARD) // DOCS_PER_DATA_FILE
+        docs_by_repo_and_batch[repo_num][batch_id].append(doc)
+    
+    data_writing_tasks = []
+    for repo_num, batches in docs_by_repo_and_batch.items():
+        for batch_id, docs in batches.items():
+            data_writing_tasks.append((repo_num, batch_id, docs))
+            
     with Pool(cpu_count()) as pool:
         list(tqdm(pool.imap_unordered(update_data_batch, data_writing_tasks), total=len(data_writing_tasks), desc="Writing data batches"))
     
-    final_index = defaultdict(lambda: defaultdict(list))
-    for pointers_list in all_pointers_flat:
-        for field, token, rich_pointer in pointers_list: final_index[field][token].append(rich_pointer)
+    # Group index pointers by shard
+    indexes_by_shard = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for i, pointers_list in enumerate(all_pointers_flat):
+        internal_id = all_docs[i]['internal_id']
+        repo_num = internal_id // SERVERS_PER_SHARD + 1
+        for field, token, rich_pointer in pointers_list:
+            indexes_by_shard[repo_num][field][token].append(rich_pointer)
             
-    for field, tokens in tqdm(final_index.items(), desc="Writing index fields"):
-        updates_by_shard_file = defaultdict(dict)
-        for token, rich_pointers in tokens.items():
-            shard_key = token[:SHARD_PREFIX_LENGTH] if len(token) >= SHARD_PREFIX_LENGTH else '_'
-            updates_by_shard_file[shard_key][token] = rich_pointers
-        field_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1), 'index', field.replace('.', '_'))
-        os.makedirs(field_path, exist_ok=True)
-        for shard_key, updates in updates_by_shard_file.items():
-            with open(os.path.join(field_path, f'{shard_key}.json'), 'w', encoding='utf-8') as f: json.dump(updates, f)
+    # Write index files for each shard
+    for repo_num, final_index in tqdm(indexes_by_shard.items(), desc="Writing shard indexes"):
+        for field, tokens in final_index.items():
+            updates_by_shard_file = defaultdict(dict)
+            for token, rich_pointers in tokens.items():
+                shard_key = token[:SHARD_PREFIX_LENGTH] if len(token) >= SHARD_PREFIX_LENGTH else '_'
+                updates_by_shard_file[shard_key][token] = rich_pointers
+            
+            field_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(repo_num), 'index', field.replace('.', '_'))
+            os.makedirs(field_path, exist_ok=True)
+            for shard_key, updates in updates_by_shard_file.items():
+                with open(os.path.join(field_path, f'{shard_key}.json'), 'w', encoding='utf-8') as f: json.dump(updates, f)
 
     print(f"\n⚙️ Stage 4/5: Generating final manifests...")
     server_sort_data = sorted([(mc, doc['internal_id']) for doc, mc in zip(all_docs, all_member_counts)], key=lambda x: x[0], reverse=True)
     sorted_ids = [item[1] for item in server_sort_data]
-    sorted_index_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1), 'all_servers_sorted_by_members.json')
+    # NOTE: Moved global sorted index to the main directory, not a shard.
+    sorted_index_path = os.path.join(BASE_DIR, 'all_servers_sorted_by_members.json')
     with open(sorted_index_path, 'w', encoding='utf-8') as f: json.dump(sorted_ids, f)
     
-    numeric_manifest = {field: sorted([int(v) for v in final_index[field].keys()]) for field in INDEX_CONFIG['numeric']}
-    numeric_manifest_path = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1), 'numeric_manifest.json')
+    # Create the full numeric index from all shards combined
+    full_numeric_index = defaultdict(set)
+    for repo_num in indexes_by_shard:
+        for field in INDEX_CONFIG['numeric']:
+            if field in indexes_by_shard[repo_num]:
+                for v in indexes_by_shard[repo_num][field].keys():
+                    full_numeric_index[field].add(int(v))
+    
+    numeric_manifest = {field: sorted(list(values)) for field, values in full_numeric_index.items()}
+    # NOTE: Moved global numeric manifest to the main directory.
+    numeric_manifest_path = os.path.join(BASE_DIR, 'numeric_manifest.json')
     with open(numeric_manifest_path, 'w', encoding='utf-8') as f: json.dump(numeric_manifest, f)
     
+    data_shard_map = []
+    for i in range(total_shards):
+        data_shard_map.append({
+            "repo": i + 1,
+            "start_id": i * SERVERS_PER_SHARD,
+            "end_id": (i + 1) * SERVERS_PER_SHARD - 1
+        })
+    # Adjust end_id for the very last shard
+    if data_shard_map:
+        data_shard_map[-1]['end_id'] = total_valid_servers - 1
+
     manifest = {
         "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "total_servers": total_valid_servers,
+        "total_shards": total_shards,
+        "servers_per_shard": SERVERS_PER_SHARD,
         "repo_base_url": f"https://{GITHUB_USERNAME}.github.io",
         "repo_name_template": "/pdsl-shard-{}",
         "docs_per_file": DOCS_PER_DATA_FILE,
-        "data_shard_map": [{"repo": 1, "start_id": 0}],
-        "index_shard_map": {field: 1 for cat in INDEX_CONFIG.values() for field in cat}
+        "data_shard_map": data_shard_map
     }
     with open(os.path.join(BASE_DIR, 'manifest.json'), 'w') as f: json.dump(manifest, f, indent=2)
 
-    # --- NEW: STAGE 5/5: Finalize Shards (Copy LICENSE) ---
     print(f"\n⚙️ Stage 5/5: Finalizing shard repositories...")
     license_source_path = os.path.join(BASE_DIR, 'LICENSE')
     if not os.path.exists(license_source_path):
-        print("!! WARNING: LICENSE file not found in 'pdsl' directory. Skipping license copy.")
+        print("!! WARNING: LICENSE file not found in build directory. Skipping license copy.")
     else:
-        # Find all shard directories that were created/used
-        used_shard_dirs = set()
-        # In this simple build, we know it's just shard 1
-        used_shard_dirs.add(os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(1)))
-
-        for shard_dir in used_shard_dirs:
+        for i in range(total_shards):
+            shard_dir = os.path.join(BASE_DIR, '..', SHARD_REPO_PREFIX.format(i + 1))
             if os.path.isdir(shard_dir):
                 print(f"Copying LICENSE to {os.path.basename(shard_dir)}...")
                 shutil.copy(license_source_path, shard_dir)
             
-    print(f"\n✅ Clean build complete! System now has {total_valid_servers} unique servers.")
+    print(f"\n✅ Clean build complete! System now has {total_valid_servers} unique servers across {total_shards} shard(s).")
 
 if __name__ == '__main__':
     main()
