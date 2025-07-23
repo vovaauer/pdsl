@@ -71,7 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DYNAMIC URL BUILDERS ---
     function getRepoUrl(repoNum) { if (IS_LOCAL_TESTING) { const repoName = PDSL.manifest.repo_name_template.replace('{}', repoNum); return `http://localhost:8000${repoName}`; } return `${PDSL.manifest.repo_base_url}${PDSL.manifest.repo_name_template.replace('{}', repoNum)}`; }
     function getUrlForIndex(field, shardKey) { const repoNum = PDSL.manifest.index_shard_map[field] || 1; const fieldPath = field.replace(/\./g, '_'); const baseUrl = `${getRepoUrl(repoNum)}/index/${fieldPath}/${shardKey}.json`; return bustCache(baseUrl); }
-    function getUrlForDataFile(internalId) { const dataShardInfo = PDSL.manifest.data_shard_map.find(m => m.start_id <= internalId && (!m.end_id || m.end_id >= internalId)) || PDSL.manifest.data_shard_map[0]; const repoNum = dataShardInfo ? dataShardInfo.repo : 1; const batchId = Math.floor(internalId / PDSL.manifest.docs_per_file); const baseUrl = `${getRepoUrl(repoNum)}/data/d_${batchId}.json`; return bustCache(baseUrl); }
+	function getUrlForDataFile(internalId) {
+		const dataShardInfo = PDSL.manifest.data_shard_map.find(m => m.start_id <= internalId && (!m.end_id || m.end_id >= internalId)) || PDSL.manifest.data_shard_map[0];
+		const repoNum = dataShardInfo ? dataShardInfo.repo : 1;
+
+		// --- THIS IS THE FIX ---
+		// The batch ID must be calculated relative to the start of the shard it's in.
+		const relativeId = internalId % PDSL.manifest.servers_per_shard;
+		const batchId = Math.floor(relativeId / PDSL.manifest.docs_per_file);
+		// --- END FIX ---
+
+		const baseUrl = `${getRepoUrl(repoNum)}/data/d_${batchId}.json`;
+		return bustCache(baseUrl);
+	}
     
     // --- SEARCH LOGIC ---
     const simpleStem = (word) => (word.length > 3 && word.endsWith('s')) ? word.slice(0, -1) : word;
