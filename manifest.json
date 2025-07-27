@@ -1,8 +1,8 @@
 {
-  "last_updated": "2025-07-23T23:27:05Z",
-  "total_servers": 461097,
-  "total_shards": 3,
-  "servers_per_shard": 200000,
+  "last_updated": "2025-07-27T06:05:56Z",
+  "total_servers": 823840,
+  "total_shards": 4,
+  "servers_per_shard": 250000,
   "repo_base_url": "https://vovaauer.github.io",
   "repo_name_template": "/pdsl-shard-{}",
   "docs_per_file": 500,
@@ -10,17 +10,22 @@
     {
       "repo": 1,
       "start_id": 0,
-      "end_id": 199999
+      "end_id": 249999
     },
     {
       "repo": 2,
-      "start_id": 200000,
-      "end_id": 399999
+      "start_id": 250000,
+      "end_id": 499999
     },
     {
       "repo": 3,
-      "start_id": 400000,
-      "end_id": 461096
+      "start_id": 500000,
+      "end_id": 749999
+    },
+    {
+      "repo": 4,
+      "start_id": 750000,
+      "end_id": 823839
     }
   ]
 }
