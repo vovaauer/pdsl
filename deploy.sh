@@ -58,7 +58,7 @@ do
   git add .
   echo "✅ Files added."
   
-  # --- NEW: Robust Commit Logic ---
+  # --- CORRECTED: Robust Commit Logic ---
   echo "Committing files..."
   # Check if a HEAD commit exists. If not, this is the first commit.
   if git rev-parse --verify HEAD >/dev/null 2>&1; then
@@ -73,10 +73,12 @@ do
     echo "Creating initial commit for new repository..."
     git commit -m "$COMMIT_MESSAGE"
     
-    echo "Pushing to remote repository..."
-    git push origin main
+    echo "Pushing to remote repository (force required for initial push)..."
+    # We use --force here to overwrite any initial commits (like a README)
+    # that might have been created on GitHub, ensuring our local state is the source of truth.
+    git push origin main --force
   fi
-  # --- END NEW ---
+  # --- END CORRECTED ---
 
   echo "✅ '$repo_name' changes deployed."
   
