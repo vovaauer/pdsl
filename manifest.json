@@ -1,6 +1,6 @@
 {
-  "last_updated": "2025-08-07T01:00:06Z",
-  "total_servers": 1263883,
+  "last_updated": "2025-09-21T05:21:30Z",
+  "total_servers": 1291580,
   "total_shards": 6,
   "servers_per_shard": 250000,
   "repo_base_url": "https://vovaauer.github.io",
@@ -35,7 +35,7 @@
     {
       "repo": 6,
       "start_id": 1250000,
-      "end_id": 1263882
+      "end_id": 1291579
     }
   ]
 }
